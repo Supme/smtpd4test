@@ -1,0 +1,11 @@
+[Unit]
+Description=smtp4test
+After=network.target
+
+[Service]
+ExecStart=/opt/smtpd4test/smtpd4test -d
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
