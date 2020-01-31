@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/Supme/smtpd"
+	"io"
 	"log"
 	"math/rand"
 	"os"
@@ -28,8 +29,14 @@ func main() {
 	}
 
 	server := &smtpd.Server{
-		Handler: handler,
+		Hostname:    "smtpd4test",
+		HeloChecker: heloChecker,
+		Handler:     handler,
+		DataWriter:  dataWriter,
 	}
+
+	rand.NewSource(time.Now().UnixNano())
+
 	go func() {
 		err = server.ListenAndServe(":" + keys.port)
 		if err != nil {
@@ -43,13 +50,19 @@ func main() {
 	<-wait
 }
 
-func handler(peer smtpd.Peer, env smtpd.Envelope) error {
+func heloChecker(peer smtpd.Peer, name string) error {
 	if keys.debug {
-		log.Printf("Peer helo name: '%s', server name: '%s', sender: '%s', recipients: '%v'", peer.HeloName, peer.ServerName, env.Sender, env.Recipients)
+		log.Printf("Peer addr: '%s'", peer.Addr.String())
 	}
-
 	wait := time.Duration(rand.Int()/10000000000) * time.Nanosecond
 	time.Sleep(wait)
+	return nil
+}
+
+func handler(peer smtpd.Peer, env smtpd.Envelope) error {
+	if keys.debug {
+		log.Printf("Peer name: '%s', sender: '%s', recipients: '%v'", peer.HeloName, env.Sender, env.Recipients)
+	}
 
 	switch rand.Intn(5) {
 	case 4:
@@ -59,4 +72,19 @@ func handler(peer smtpd.Peer, env smtpd.Envelope) error {
 	}
 
 	return nil
+}
+
+type DiscardWriteCloser struct{}
+
+func (w DiscardWriteCloser) Write(p []byte) (int, error) {
+	return len(p), nil
+}
+
+func (w DiscardWriteCloser) Close() error {
+	return nil
+}
+
+func dataWriter(peer smtpd.Peer) ([]byte, io.WriteCloser, error) {
+	wc := DiscardWriteCloser{}
+	return []byte("fakeID"), wc, nil
 }
