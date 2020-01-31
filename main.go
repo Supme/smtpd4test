@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-const version = "0.0.1-beta"
+const version = "0.0.1-beta2"
 
 var keys struct {
 	port  string
@@ -84,7 +84,10 @@ func handler(peer smtpd.Peer, env smtpd.Envelope) error {
 		}
 		log.Printf("Peer name: '%s', sender: '%s', recipients: '%v' result code: '%v'", peer.HeloName, env.Sender, env.Recipients, r)
 	}
-	return res
+	if res.Code != 0 {
+		return res
+	}
+	return nil
 }
 
 type DiscardWriteCloser struct{}
