@@ -1,0 +1,3 @@
+github.com/Supme/smtpd v0.1.3 h1:CGI4bfiaLJ3RlqD/QH6/OG8o/HVL7Z2gbqpB7enPp4I=
+github.com/Supme/smtpd v0.1.3/go.mod h1:aUqE0xVV1Ql+X+hNSWuVSMjZVMAbfyy1WXora8CdmHU=
+github.com/eaigner/dkim v0.0.0-20150301120808-6fe4a7ee9cfb/go.mod h1:FSCIHbrqk7D01Mj8y/jW+NS1uoCerr+ad+IckTHTFf4=
