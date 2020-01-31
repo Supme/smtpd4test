@@ -12,6 +12,8 @@ import (
 	"time"
 )
 
+const version = "0.0.1-alpha2"
+
 var keys struct {
 	port  string
 	debug bool
@@ -20,7 +22,13 @@ var keys struct {
 func main() {
 	flag.StringVar(&keys.port, "p", "25", "Listen port")
 	flag.BoolVar(&keys.debug, "d", false, "Show debug message")
+	v := flag.Bool("v", false, "Show version")
 	flag.Parse()
+
+	if *v {
+		fmt.Println("smtpd4test version", version)
+		return
+	}
 
 	port, err := strconv.Atoi(keys.port)
 	if err != nil || port < 1 || port > 65535 {
