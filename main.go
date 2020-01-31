@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-const version = "0.0.1-alpha2"
+const version = "0.0.1-beta"
 
 var keys struct {
 	port  string
@@ -68,18 +68,23 @@ func heloChecker(peer smtpd.Peer, name string) error {
 }
 
 func handler(peer smtpd.Peer, env smtpd.Envelope) error {
-	if keys.debug {
-		log.Printf("Peer name: '%s', sender: '%s', recipients: '%v'", peer.HeloName, env.Sender, env.Recipients)
-	}
-
+	var res smtpd.Error
 	switch rand.Intn(5) {
 	case 4:
-		return smtpd.Error{Code: 450, Message: "Come back later"}
+		res = smtpd.Error{Code: 450, Message: "Come back later"}
 	case 5:
-		return smtpd.Error{Code: 550, Message: "Don't come again"}
+		res = smtpd.Error{Code: 550, Message: "Don't come again"}
 	}
-
-	return nil
+	if keys.debug {
+		var r int
+		if res.Code == 0 {
+			r = 250
+		} else {
+			r = res.Code
+		}
+		log.Printf("Peer name: '%s', sender: '%s', recipients: '%v' result code: '%v'", peer.HeloName, env.Sender, env.Recipients, r)
+	}
+	return res
 }
 
 type DiscardWriteCloser struct{}
