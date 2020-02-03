@@ -1,29 +1,42 @@
 package main
 
 import (
+	"blitiri.com.ar/go/spf"
 	"flag"
 	"fmt"
 	"github.com/Supme/smtpd"
 	"io"
 	"log"
 	"math/rand"
+	"net"
 	"os"
 	"strconv"
+	"strings"
 	"time"
+	//"github.com/emersion/go-msgauth/dkim"
 )
 
-const version = "0.0.1-beta2"
+const version = "0.0.1-beta3"
 
 var keys struct {
-	port  string
+	domains   []string
+	port      string
+	checkHelo bool
+	checkSPF  bool
+	//checkDKIM bool
 	debug bool
 }
 
 func main() {
 	flag.StringVar(&keys.port, "p", "25", "Listen port")
 	flag.BoolVar(&keys.debug, "d", false, "Show debug message")
+	flag.BoolVar(&keys.checkHelo, "helo", false, "Check HELO reverse IP")
+	flag.BoolVar(&keys.checkSPF, "spf", false, "Check SPF")
+	//cdkim := flag.Bool("spf", false, "Check DKIM")
 	v := flag.Bool("v", false, "Show version")
 	flag.Parse()
+
+	keys.domains = flag.Args()
 
 	if *v {
 		fmt.Println("smtpd4test version", version)
@@ -37,10 +50,12 @@ func main() {
 	}
 
 	server := &smtpd.Server{
-		Hostname:    "smtpd4test",
-		HeloChecker: heloChecker,
-		Handler:     handler,
-		DataWriter:  dataWriter,
+		Hostname:         "smtpd4test",
+		HeloChecker:      heloChecker,
+		SenderChecker:    senderChecker,
+		RecipientChecker: recipientChecker,
+		Handler:          handler,
+		DataWriter:       dataDiscardWriter,
 	}
 
 	rand.NewSource(time.Now().UnixNano())
@@ -54,17 +69,66 @@ func main() {
 	}()
 
 	fmt.Println("Server listen on port", port)
+	if len(keys.domains) > 0 {
+		fmt.Printf("Receive for domains %v checkHelo=%t checkSPF=%t\r\n", keys.domains, keys.checkHelo, keys.checkSPF)
+	}
 	wait := make(chan struct{}, 0)
 	<-wait
 }
 
 func heloChecker(peer smtpd.Peer, name string) error {
-	if keys.debug {
-		log.Printf("Peer addr: '%s'", peer.Addr.String())
-	}
 	wait := time.Duration(rand.Int()/10000000000) * time.Nanosecond
 	time.Sleep(wait)
+	if keys.checkHelo {
+		host, _, _ := net.SplitHostPort(peer.Addr.String())
+		names, err := net.LookupAddr(host)
+		debug("Peer addr: '%s' lookup %v", peer.Addr.String(), names)
+		if err != nil {
+			debug("Peer addr: '%s' wait HELO '%s' has not resolved IP", peer.Addr.String(), wait)
+			return smtpd.Error{Code: 550, Message: "Your HELO/EHLO greeting must resolve"}
+		}
+		if !hasDomainInArray(names, name) {
+			debug("Peer addr: '%s' wait HELO '%s' greeting '%s' but has resolving '%v", peer.Addr.String(), wait, name, names)
+			return smtpd.Error{Code: 550, Message: "Your HELO/EHLO greeting does not match you IP"}
+		}
+	}
+	debug("Peer addr: '%s' wait HELO '%s'", peer.Addr.String(), wait)
 	return nil
+}
+
+func senderChecker(peer smtpd.Peer, addr string) error {
+	if !keys.checkSPF {
+		return nil
+	}
+	sAddr := strings.Split(addr, "@")
+	if len(sAddr) == 2 {
+		host, _, _ := net.SplitHostPort(peer.Addr.String())
+		ip := net.ParseIP(host)
+		r, err := spf.CheckHostWithSender(ip, peer.HeloName, addr)
+		if err != nil {
+
+		}
+		debug("Peer addr: '%s' check SPF result '%s' for domain '%s'", peer.Addr.String(), r, sAddr[1])
+		if r == spf.Fail || r == spf.PermError || r == spf.TempError {
+			return smtpd.Error{Code: 550, Message: "Check spf '" + string(r) + "'"}
+		}
+		if r != spf.Pass && r != spf.None {
+			return smtpd.Error{Code: 421, Message: "Check spf '" + string(r) + "'"}
+		}
+		return nil
+	}
+	return smtpd.Error{Code: 550, Message: "Invalid from email"}
+}
+
+func recipientChecker(peer smtpd.Peer, addr string) error {
+	sAddr := strings.Split(addr, "@")
+	if len(sAddr) == 2 {
+		if hasDomain(sAddr[1]) {
+			return nil
+		}
+		return smtpd.Error{Code: 550, Message: "I'm not a relay"}
+	}
+	return smtpd.Error{Code: 550, Message: "Invalid email"}
 }
 
 func handler(peer smtpd.Peer, env smtpd.Envelope) error {
@@ -82,7 +146,7 @@ func handler(peer smtpd.Peer, env smtpd.Envelope) error {
 		} else {
 			r = res.Code
 		}
-		log.Printf("Peer name: '%s', sender: '%s', recipients: '%v' result code: '%v'", peer.HeloName, env.Sender, env.Recipients, r)
+		debug("Peer name: '%s', sender: '%s', recipients: '%v' result code: '%v'", peer.HeloName, env.Sender, env.Recipients, r)
 	}
 	if res.Code != 0 {
 		return res
@@ -100,7 +164,32 @@ func (w DiscardWriteCloser) Close() error {
 	return nil
 }
 
-func dataWriter(peer smtpd.Peer) ([]byte, io.WriteCloser, error) {
+func dataDiscardWriter(peer smtpd.Peer) ([]byte, io.WriteCloser, error) {
 	wc := DiscardWriteCloser{}
 	return []byte("fakeID"), wc, nil
+}
+
+func hasDomain(d string) bool {
+	if len(keys.domains) == 0 {
+		return true
+	}
+	if hasDomainInArray(keys.domains, d) {
+		return true
+	}
+	return false
+}
+
+func hasDomainInArray(array []string, s string) bool {
+	for i := range array {
+		if strings.ToLower(strings.TrimSpace(strings.TrimRight(array[i], "."))) == strings.ToLower(strings.TrimSpace(strings.TrimRight(s, "."))) {
+			return true
+		}
+	}
+	return false
+}
+
+func debug(format string, v ...interface{}) {
+	if keys.debug {
+		log.Printf(format, v...)
+	}
 }

@@ -3,7 +3,7 @@ Description=smtp4test
 After=network.target
 
 [Service]
-ExecStart=/opt/smtpd4test/smtpd4test -d
+ExecStart=/opt/smtpd4test/smtpd4test -d --helo --spf -p 2525 domain1.tld domain2.tld
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 Restart=always
 
